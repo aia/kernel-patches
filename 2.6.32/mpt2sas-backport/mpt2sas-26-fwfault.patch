@@ -1,0 +1,23 @@
+diff --git a/drivers/scsi/mpt2sas/mpt2sas_base.c b/drivers/scsi/mpt2sas/mpt2sas_base.c
+index bbd4f71..88e6eeb 100644
+--- a/drivers/scsi/mpt2sas/mpt2sas_base.c
++++ b/drivers/scsi/mpt2sas/mpt2sas_base.c
+@@ -107,8 +107,7 @@ _scsih_set_fwfault_debug(const char *val, struct kernel_param *kp)
+ 	if (ret)
+ 		return ret;
+ 
+-	printk(KERN_INFO "setting logging_level(0x%08x)\n",
+-				mpt2sas_fwfault_debug);
++	printk(KERN_INFO "setting fwfault_debug(%d)\n", mpt2sas_fwfault_debug);
+ 	list_for_each_entry(ioc, &mpt2sas_ioc_list, list)
+ 		ioc->fwfault_debug = mpt2sas_fwfault_debug;
+ 	return 0;
+@@ -3576,6 +3575,8 @@ mpt2sas_base_attach(struct MPT2SAS_ADAPTER *ioc)
+ 
+ 	init_waitqueue_head(&ioc->reset_wq);
+ 
++	ioc->fwfault_debug = mpt2sas_fwfault_debug;
++
+ 	/* base internal command bits */
+ 	mutex_init(&ioc->base_cmds.mutex);
+ 	ioc->base_cmds.reply = kzalloc(ioc->reply_sz, GFP_KERNEL);

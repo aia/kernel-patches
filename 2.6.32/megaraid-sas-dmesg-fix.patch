@@ -1,0 +1,31 @@
+diff --git a/drivers/scsi/megaraid/megaraid_sas.c b/drivers/scsi/megaraid/megaraid_sas.c
+index e48d37b..8965842 100644
+--- a/drivers/scsi/megaraid/megaraid_sas.c
++++ b/drivers/scsi/megaraid/megaraid_sas.c
+@@ -3966,6 +3966,8 @@ static int megasas_mgmt_compat_ioctl_fw(struct file *file, unsigned long arg)
+ 	    compat_alloc_user_space(sizeof(struct megasas_iocpacket));
+ 	int i;
+ 	int error = 0;
++	compat_uptr_t ptr;
++	u8 *raw_ptr;
+ 
+ 	if (clear_user(ioc, sizeof(*ioc)))
+ 		return -EFAULT;
+@@ -3978,9 +3980,14 @@ static int megasas_mgmt_compat_ioctl_fw(struct file *file, unsigned long arg)
+ 	    copy_in_user(&ioc->sge_count, &cioc->sge_count, sizeof(u32)))
+ 		return -EFAULT;
+ 
+-	for (i = 0; i < MAX_IOCTL_SGE; i++) {
+-		compat_uptr_t ptr;
++	if (ioc->sense_len) {
++		raw_ptr = ioc->frame.raw + ioc->sense_off;
++		if (get_user(ptr, (compat_uptr_t *)raw_ptr) ||
++		    put_user(ptr, (unsigned long *)raw_ptr))
++			return -EFAULT;
++	}
+ 
++	for (i = 0; i < MAX_IOCTL_SGE; i++) {
+ 		if (get_user(ptr, &cioc->sgl[i].iov_base) ||
+ 		    put_user(compat_ptr(ptr), &ioc->sgl[i].iov_base) ||
+ 		    copy_in_user(&ioc->sgl[i].iov_len,
+

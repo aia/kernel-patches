@@ -1,0 +1,102 @@
+diff -Naur ../../../aufs/linux-2.6.32-220.el6.x86_64/fs/aufs/branch.c fs/aufs/branch.c
+--- ../../../aufs/linux-2.6.32-220.el6.x86_64/fs/aufs/branch.c	2012-02-12 18:16:40.000000000 -0500
++++ fs/aufs/branch.c	2012-02-12 18:39:18.000000000 -0500
+@@ -330,11 +330,13 @@
+ 	 * a limit for rmdir/rename a dir
+ 	 * cf. AUFS_MAX_NAMELEN in include/linux/aufs_type.h
+ 	 */
+-	h_dentry = path->dentry;
+-	err = vfs_statfs(h_dentry, &kst);
++	/* h_dentry = path->dentry;
++	err = vfs_statfs(h_dentry, &kst); */
++	err = vfs_statfs(path, &kst);
+ 	if (unlikely(err))
+ 		goto out;
+ 	err = -EINVAL;
++	h_dentry = path->dentry;
+ 	if (kst.f_namelen >= NAME_MAX)
+ 		err = au_br_init_wh(sb, br, perm, h_dentry);
+ 	else
+diff -Naur ../../../aufs/linux-2.6.32-220.el6.x86_64/fs/aufs/super.c fs/aufs/super.c
+--- ../../../aufs/linux-2.6.32-220.el6.x86_64/fs/aufs/super.c	2012-02-12 18:16:40.000000000 -0500
++++ fs/aufs/super.c	2012-02-12 18:35:56.000000000 -0500
+@@ -301,7 +301,8 @@
+ 	u64 blocks, bfree, bavail, files, ffree;
+ 	aufs_bindex_t bend, bindex, i;
+ 	unsigned char shared;
+-	struct vfsmount *h_mnt;
++	/* struct vfsmount *h_mnt; */
++	struct path h_path;
+ 	struct super_block *h_sb;
+ 
+ 	blocks = 0;
+@@ -313,8 +314,10 @@
+ 	err = 0;
+ 	bend = au_sbend(sb);
+ 	for (bindex = bend; bindex >= 0; bindex--) {
+-		h_mnt = au_sbr_mnt(sb, bindex);
+-		h_sb = h_mnt->mnt_sb;
++		/* h_mnt = au_sbr_mnt(sb, bindex); */
++		h_path.mnt = au_sbr_mnt(sb, bindex);
++		/* h_sb = h_mnt->mnt_sb; */
++		h_sb = h_path.mnt->mnt_sb;
+ 		shared = 0;
+ 		for (i = bindex + 1; !shared && i <= bend; i++)
+ 			shared = (au_sbr_sb(sb, i) == h_sb);
+@@ -322,7 +325,9 @@
+ 			continue;
+ 
+ 		/* sb->s_root for NFS is unreliable */
+-		err = vfs_statfs(h_mnt->mnt_root, buf);
++		/* err = vfs_statfs(h_mnt->mnt_root, buf); */
++		h_path.dentry = h_path.mnt->mnt_root;
++		err = vfs_statfs(&h_path, buf);
+ 		if (unlikely(err))
+ 			goto out;
+ 
+@@ -346,15 +351,19 @@
+ static int aufs_statfs(struct dentry *dentry, struct kstatfs *buf)
+ {
+ 	int err;
++	struct path h_path;
+ 	struct super_block *sb;
+ 
+ 	/* lock free root dinfo */
+ 	sb = dentry->d_sb;
+ 	si_noflush_read_lock(sb);
+-	if (!au_opt_test(au_mntflags(sb), SUM))
++	if (!au_opt_test(au_mntflags(sb), SUM)) {
+ 		/* sb->s_root for NFS is unreliable */
+-		err = vfs_statfs(au_sbr_mnt(sb, 0)->mnt_root, buf);
+-	else
++		h_path.mnt = au_sbr_mnt(sb, 0);
++		h_path.dentry = h_path.mnt->mnt_root;
++		err = vfs_statfs(&h_path, buf);
++		/* err = vfs_statfs(au_sbr_mnt(sb, 0)->mnt_root, buf); */
++	} else
+ 		err = au_statfs_sum(sb, buf);
+ 	si_read_unlock(sb);
+ 
+diff -Naur ../../../aufs/linux-2.6.32-220.el6.x86_64/fs/aufs/wbr_policy.c fs/aufs/wbr_policy.c
+--- ../../../aufs/linux-2.6.32-220.el6.x86_64/fs/aufs/wbr_policy.c	2012-02-12 18:16:40.000000000 -0500
++++ fs/aufs/wbr_policy.c	2012-02-12 18:41:30.000000000 -0500
+@@ -408,6 +408,7 @@
+ 	aufs_bindex_t bindex, bend;
+ 	int err;
+ 	unsigned long long b, bavail;
++	struct path h_path;
+ 	/* reduce the stack usage */
+ 	struct kstatfs *st;
+ 
+@@ -430,7 +431,10 @@
+ 			continue;
+ 
+ 		/* sb->s_root for NFS is unreliable */
+-		err = vfs_statfs(br->br_mnt->mnt_root, st);
++		h_path.mnt = br->br_mnt;
++		h_path.dentry = h_path.mnt->mnt_root;
++		/* err = vfs_statfs(br->br_mnt->mnt_root, st); */
++		err = vfs_statfs(&h_path, st);
+ 		if (unlikely(err)) {
+ 			AuWarn1("failed statfs, b%d, %d\n", bindex, err);
+ 			continue;

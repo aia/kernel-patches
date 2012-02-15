@@ -1,0 +1,54 @@
+diff --git a/drivers/scsi/mpt2sas/mpt2sas_base.c b/drivers/scsi/mpt2sas/mpt2sas_base.c
+index 2e6e45a..9ad4b48 100644
+--- a/drivers/scsi/mpt2sas/mpt2sas_base.c
++++ b/drivers/scsi/mpt2sas/mpt2sas_base.c
+@@ -1901,7 +1901,7 @@ _base_release_memory_pools(struct MPT2SAS_ADAPTER *ioc)
+ 		    ioc->config_page, ioc->config_page_dma);
+ 	}
+ 
+-	kfree(ioc->scsi_lookup);
++	free_pages((ulong)ioc->scsi_lookup, ioc->scsi_lookup_pages);
+ 	kfree(ioc->hpr_lookup);
+ 	kfree(ioc->internal_lookup);
+ }
+@@ -2113,11 +2113,13 @@ _base_allocate_memory_pools(struct MPT2SAS_ADAPTER *ioc,  int sleep_flag)
+ 	    ioc->name, (unsigned long long) ioc->request_dma));
+ 	total_sz += sz;
+ 
+-	ioc->scsi_lookup = kcalloc(ioc->scsiio_depth,
+-	    sizeof(struct request_tracker), GFP_KERNEL);
++	sz = ioc->scsiio_depth * sizeof(struct request_tracker);
++	ioc->scsi_lookup_pages = get_order(sz);
++	ioc->scsi_lookup = (struct request_tracker *)__get_free_pages(
++	    GFP_KERNEL, ioc->scsi_lookup_pages);
+ 	if (!ioc->scsi_lookup) {
+-		printk(MPT2SAS_ERR_FMT "scsi_lookup: kcalloc failed\n",
+-		    ioc->name);
++		printk(MPT2SAS_ERR_FMT "scsi_lookup: get_free_pages failed, "
++		    "sz(%d)\n", ioc->name, (int)sz);
+ 		goto out;
+ 	}
+ 
+diff --git a/drivers/scsi/mpt2sas/mpt2sas_base.h b/drivers/scsi/mpt2sas/mpt2sas_base.h
+index 142b694..cdedfcb 100644
+--- a/drivers/scsi/mpt2sas/mpt2sas_base.h
++++ b/drivers/scsi/mpt2sas/mpt2sas_base.h
+@@ -676,7 +676,8 @@ struct MPT2SAS_ADAPTER {
+ 	dma_addr_t	request_dma;
+ 	u32		request_dma_sz;
+ 	struct request_tracker *scsi_lookup;
+-	spinlock_t scsi_lookup_lock;
++	ulong		scsi_lookup_pages;
++	spinlock_t 	scsi_lookup_lock;
+ 	struct list_head free_list;
+ 	int		pending_io_count;
+ 	wait_queue_head_t reset_wq;
+@@ -688,7 +689,7 @@ struct MPT2SAS_ADAPTER {
+ 	u16		max_sges_in_chain_message;
+ 	u16		chains_needed_per_io;
+ 	u16		chain_offset_value_for_main_message;
+-	u16		chain_depth;
++	u32		chain_depth;
+ 
+ 	/* hi-priority queue */
+ 	u16		hi_priority_smid;

@@ -1,0 +1,16 @@
+diff --git a/drivers/scsi/mpt2sas/mpt2sas_base.c b/drivers/scsi/mpt2sas/mpt2sas_base.c
+index b04ccad..b830d61 100644
+--- a/drivers/scsi/mpt2sas/mpt2sas_base.c
++++ b/drivers/scsi/mpt2sas/mpt2sas_base.c
+@@ -1919,7 +1919,10 @@ _base_release_memory_pools(struct MPT2SAS_ADAPTER *ioc)
+ 		    ioc->config_page, ioc->config_page_dma);
+ 	}
+ 
+-	free_pages((ulong)ioc->scsi_lookup, ioc->scsi_lookup_pages);
++	if (ioc->scsi_lookup) {
++		free_pages((ulong)ioc->scsi_lookup, ioc->scsi_lookup_pages);
++		ioc->scsi_lookup = NULL;
++	}
+ 	kfree(ioc->hpr_lookup);
+ 	kfree(ioc->internal_lookup);
+ }

@@ -1,0 +1,89 @@
+--- linux-2.6.35.y.orig/include/linux/user_namespace.h
++++ linux-2.6.35.y/include/linux/user_namespace.h
+@@ -36,6 +36,9 @@ static inline void put_user_ns(struct us
+ 		kref_put(&ns->kref, free_user_ns);
+ }
+ 
++uid_t user_ns_map_uid(struct user_namespace *to, const struct cred *cred, uid_t uid);
++gid_t user_ns_map_gid(struct user_namespace *to, const struct cred *cred, gid_t gid);
++
+ #else
+ 
+ static inline struct user_namespace *get_user_ns(struct user_namespace *ns)
+@@ -52,6 +55,17 @@ static inline void put_user_ns(struct us
+ {
+ }
+ 
++static inline uid_t user_ns_map_uid(struct user_namespace *to,
++	const struct cred *cred, uid_t uid)
++{
++	return uid;
++}
++static inline gid_t user_ns_map_gid(struct user_namespace *to,
++	const struct cred *cred, gid_t gid)
++{
++	return gid;
++}
++
+ #endif
+ 
+ #endif /* _LINUX_USER_H */
+Index: linux-2.6.35.y/kernel/user_namespace.c
+===================================================================
+--- linux-2.6.35.y.orig/kernel/user_namespace.c
++++ linux-2.6.35.y/kernel/user_namespace.c
+@@ -9,6 +9,7 @@
+ #include <linux/nsproxy.h>
+ #include <linux/slab.h>
+ #include <linux/user_namespace.h>
++#include <linux/highuid.h>
+ #include <linux/cred.h>
+ 
+ /*
+@@ -82,3 +83,46 @@ void free_user_ns(struct kref *kref)
+ 	schedule_work(&ns->destroyer);
+ }
+ EXPORT_SYMBOL(free_user_ns);
++
++uid_t user_ns_map_uid(struct user_namespace *to, const struct cred *cred, uid_t uid)
++{
++	struct user_namespace *tmp;
++
++	if (likely(to == cred->user->user_ns))
++		return uid;
++
++
++	/* Is cred->user the creator of the target user_ns
++	 * or the creator of one of it's parents?
++	 */
++	for ( tmp = to; tmp != &init_user_ns;
++	      tmp = tmp->creator->user_ns ) {
++		if (cred->user == tmp->creator) {
++			return (uid_t)0;
++		}
++	}
++
++	/* No useful relationship so no mapping */
++	return overflowuid;
++}
++
++gid_t user_ns_map_gid(struct user_namespace *to, const struct cred *cred, gid_t gid)
++{
++	struct user_namespace *tmp;
++
++	if (likely(to == cred->user->user_ns))
++		return gid;
++
++	/* Is cred->user the creator of the target user_ns
++	 * or the creator of one of it's parents?
++	 */
++	for ( tmp = to; tmp != &init_user_ns;
++	      tmp = tmp->creator->user_ns ) {
++		if (cred->user == tmp->creator) {
++			return (gid_t)0;
++		}
++	}
++
++	/* No useful relationship so no mapping */
++	return overflowgid;
++}

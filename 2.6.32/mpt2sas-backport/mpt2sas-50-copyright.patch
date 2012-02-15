@@ -1,0 +1,185 @@
+diff --git a/drivers/scsi/mpt2sas/Kconfig b/drivers/scsi/mpt2sas/Kconfig
+index ba8e128..bbb7e4b 100644
+--- a/drivers/scsi/mpt2sas/Kconfig
++++ b/drivers/scsi/mpt2sas/Kconfig
+@@ -2,7 +2,7 @@
+ # Kernel configuration file for the MPT2SAS
+ #
+ # This code is based on drivers/scsi/mpt2sas/Kconfig
+-# Copyright (C) 2007-2009  LSI Corporation
++# Copyright (C) 2007-2010  LSI Corporation
+ #  (mailto:DL-MPTFusionLinux@lsi.com)
+ 
+ # This program is free software; you can redistribute it and/or
+diff --git a/drivers/scsi/mpt2sas/mpi/mpi2.h b/drivers/scsi/mpt2sas/mpi/mpi2.h
+index 9958d84..dada0a1 100644
+--- a/drivers/scsi/mpt2sas/mpi/mpi2.h
++++ b/drivers/scsi/mpt2sas/mpi/mpi2.h
+@@ -1,5 +1,5 @@
+ /*
+- *  Copyright (c) 2000-2009 LSI Corporation.
++ *  Copyright (c) 2000-2010 LSI Corporation.
+  *
+  *
+  *           Name:  mpi2.h
+diff --git a/drivers/scsi/mpt2sas/mpi/mpi2_cnfg.h b/drivers/scsi/mpt2sas/mpi/mpi2_cnfg.h
+index cf0ac9f..d4e9d6f 100644
+--- a/drivers/scsi/mpt2sas/mpi/mpi2_cnfg.h
++++ b/drivers/scsi/mpt2sas/mpi/mpi2_cnfg.h
+@@ -1,5 +1,5 @@
+ /*
+- *  Copyright (c) 2000-2009 LSI Corporation.
++ *  Copyright (c) 2000-2010 LSI Corporation.
+  *
+  *
+  *           Name:  mpi2_cnfg.h
+diff --git a/drivers/scsi/mpt2sas/mpi/mpi2_history.txt b/drivers/scsi/mpt2sas/mpi/mpi2_history.txt
+index c4adf76..bd6c92b 100644
+--- a/drivers/scsi/mpt2sas/mpi/mpi2_history.txt
++++ b/drivers/scsi/mpt2sas/mpi/mpi2_history.txt
+@@ -2,7 +2,7 @@
+  Fusion-MPT MPI 2.0 Header File Change History
+  ==============================
+ 
+- Copyright (c) 2000-2009 LSI Corporation.
++ Copyright (c) 2000-2010 LSI Corporation.
+ 
+  ---------------------------------------
+  Header Set Release Version:    02.00.14
+diff --git a/drivers/scsi/mpt2sas/mpi/mpi2_init.h b/drivers/scsi/mpt2sas/mpi/mpi2_init.h
+index 6541945..220bf65 100644
+--- a/drivers/scsi/mpt2sas/mpi/mpi2_init.h
++++ b/drivers/scsi/mpt2sas/mpi/mpi2_init.h
+@@ -1,5 +1,5 @@
+ /*
+- *  Copyright (c) 2000-2009 LSI Corporation.
++ *  Copyright (c) 2000-2010 LSI Corporation.
+  *
+  *
+  *           Name:  mpi2_init.h
+diff --git a/drivers/scsi/mpt2sas/mpi/mpi2_ioc.h b/drivers/scsi/mpt2sas/mpi/mpi2_ioc.h
+index 7549384..f18f114 100644
+--- a/drivers/scsi/mpt2sas/mpi/mpi2_ioc.h
++++ b/drivers/scsi/mpt2sas/mpi/mpi2_ioc.h
+@@ -1,5 +1,5 @@
+ /*
+- *  Copyright (c) 2000-2009 LSI Corporation.
++ *  Copyright (c) 2000-2010 LSI Corporation.
+  *
+  *
+  *           Name:  mpi2_ioc.h
+diff --git a/drivers/scsi/mpt2sas/mpi/mpi2_tool.h b/drivers/scsi/mpt2sas/mpi/mpi2_tool.h
+index 73fcdbf..686b09b 100644
+--- a/drivers/scsi/mpt2sas/mpi/mpi2_tool.h
++++ b/drivers/scsi/mpt2sas/mpi/mpi2_tool.h
+@@ -1,5 +1,5 @@
+ /*
+- *  Copyright (c) 2000-2009 LSI Corporation.
++ *  Copyright (c) 2000-2010 LSI Corporation.
+  *
+  *
+  *           Name:  mpi2_tool.h
+diff --git a/drivers/scsi/mpt2sas/mpt2sas_base.c b/drivers/scsi/mpt2sas/mpt2sas_base.c
+index 6c384da..f980b88 100644
+--- a/drivers/scsi/mpt2sas/mpt2sas_base.c
++++ b/drivers/scsi/mpt2sas/mpt2sas_base.c
+@@ -3,7 +3,7 @@
+  * for access to MPT (Message Passing Technology) firmware.
+  *
+  * This code is based on drivers/scsi/mpt2sas/mpt2_base.c
+- * Copyright (C) 2007-2009  LSI Corporation
++ * Copyright (C) 2007-2010  LSI Corporation
+  *  (mailto:DL-MPTFusionLinux@lsi.com)
+  *
+  * This program is free software; you can redistribute it and/or
+diff --git a/drivers/scsi/mpt2sas/mpt2sas_base.h b/drivers/scsi/mpt2sas/mpt2sas_base.h
+index 9973efd..752078d 100644
+--- a/drivers/scsi/mpt2sas/mpt2sas_base.h
++++ b/drivers/scsi/mpt2sas/mpt2sas_base.h
+@@ -3,7 +3,7 @@
+  * for access to MPT (Message Passing Technology) firmware.
+  *
+  * This code is based on drivers/scsi/mpt2sas/mpt2_base.h
+- * Copyright (C) 2007-2009  LSI Corporation
++ * Copyright (C) 2007-2010  LSI Corporation
+  *  (mailto:DL-MPTFusionLinux@lsi.com)
+  *
+  * This program is free software; you can redistribute it and/or
+diff --git a/drivers/scsi/mpt2sas/mpt2sas_config.c b/drivers/scsi/mpt2sas/mpt2sas_config.c
+index 6f713fd..e762dd3 100644
+--- a/drivers/scsi/mpt2sas/mpt2sas_config.c
++++ b/drivers/scsi/mpt2sas/mpt2sas_config.c
+@@ -2,7 +2,7 @@
+  * This module provides common API for accessing firmware configuration pages
+  *
+  * This code is based on drivers/scsi/mpt2sas/mpt2_base.c
+- * Copyright (C) 2007-2009  LSI Corporation
++ * Copyright (C) 2007-2010  LSI Corporation
+  *  (mailto:DL-MPTFusionLinux@lsi.com)
+  *
+  * This program is free software; you can redistribute it and/or
+diff --git a/drivers/scsi/mpt2sas/mpt2sas_ctl.c b/drivers/scsi/mpt2sas/mpt2sas_ctl.c
+index 9860e7e..ddaa99c 100644
+--- a/drivers/scsi/mpt2sas/mpt2sas_ctl.c
++++ b/drivers/scsi/mpt2sas/mpt2sas_ctl.c
+@@ -3,7 +3,7 @@
+  * controllers
+  *
+  * This code is based on drivers/scsi/mpt2sas/mpt2_ctl.c
+- * Copyright (C) 2007-2009  LSI Corporation
++ * Copyright (C) 2007-2010  LSI Corporation
+  *  (mailto:DL-MPTFusionLinux@lsi.com)
+  *
+  * This program is free software; you can redistribute it and/or
+diff --git a/drivers/scsi/mpt2sas/mpt2sas_ctl.h b/drivers/scsi/mpt2sas/mpt2sas_ctl.h
+index 8a5eeb1..69916e4 100644
+--- a/drivers/scsi/mpt2sas/mpt2sas_ctl.h
++++ b/drivers/scsi/mpt2sas/mpt2sas_ctl.h
+@@ -3,7 +3,7 @@
+  * controllers
+  *
+  * This code is based on drivers/scsi/mpt2sas/mpt2_ctl.h
+- * Copyright (C) 2007-2009  LSI Corporation
++ * Copyright (C) 2007-2010  LSI Corporation
+  *  (mailto:DL-MPTFusionLinux@lsi.com)
+  *
+  * This program is free software; you can redistribute it and/or
+diff --git a/drivers/scsi/mpt2sas/mpt2sas_debug.h b/drivers/scsi/mpt2sas/mpt2sas_debug.h
+index 5308a25..3dcddfe 100644
+--- a/drivers/scsi/mpt2sas/mpt2sas_debug.h
++++ b/drivers/scsi/mpt2sas/mpt2sas_debug.h
+@@ -2,7 +2,7 @@
+  * Logging Support for MPT (Message Passing Technology) based controllers
+  *
+  * This code is based on drivers/scsi/mpt2sas/mpt2_debug.c
+- * Copyright (C) 2007-2009  LSI Corporation
++ * Copyright (C) 2007-2010  LSI Corporation
+  *  (mailto:DL-MPTFusionLinux@lsi.com)
+  *
+  * This program is free software; you can redistribute it and/or
+diff --git a/drivers/scsi/mpt2sas/mpt2sas_scsih.c b/drivers/scsi/mpt2sas/mpt2sas_scsih.c
+index 4fdbb0b..b0d598e 100644
+--- a/drivers/scsi/mpt2sas/mpt2sas_scsih.c
++++ b/drivers/scsi/mpt2sas/mpt2sas_scsih.c
+@@ -2,7 +2,7 @@
+  * Scsi Host Layer for MPT (Message Passing Technology) based controllers
+  *
+  * This code is based on drivers/scsi/mpt2sas/mpt2_scsih.c
+- * Copyright (C) 2007-2009  LSI Corporation
++ * Copyright (C) 2007-2010  LSI Corporation
+  *  (mailto:DL-MPTFusionLinux@lsi.com)
+  *
+  * This program is free software; you can redistribute it and/or
+diff --git a/drivers/scsi/mpt2sas/mpt2sas_transport.c b/drivers/scsi/mpt2sas/mpt2sas_transport.c
+index 9b585f0..bb2d2c9 100644
+--- a/drivers/scsi/mpt2sas/mpt2sas_transport.c
++++ b/drivers/scsi/mpt2sas/mpt2sas_transport.c
+@@ -2,7 +2,7 @@
+  * SAS Transport Layer for MPT (Message Passing Technology) based controllers
+  *
+  * This code is based on drivers/scsi/mpt2sas/mpt2_transport.c
+- * Copyright (C) 2007-2009  LSI Corporation
++ * Copyright (C) 2007-2010  LSI Corporation
+  *  (mailto:DL-MPTFusionLinux@lsi.com)
+  *
+  * This program is free software; you can redistribute it and/or

@@ -1,0 +1,124 @@
+diff -Naur a/drivers/scsi/mpt2sas/mpt2sas_scsih.c b/drivers/scsi/mpt2sas/mpt2sas_scsih.c
+--- a/drivers/scsi/mpt2sas/mpt2sas_scsih.c	2010-09-27 14:47:55.000000000 -0700
++++ b/drivers/scsi/mpt2sas/mpt2sas_scsih.c	2010-09-27 14:46:30.000000000 -0700
+@@ -54,6 +54,7 @@
+ #include <linux/interrupt.h>
+ #include <linux/aer.h>
+ #include <linux/raid_class.h>
++#include <linux/slab.h>
+ 
+ #include "mpt2sas_base.h"
+ 
+@@ -1291,7 +1292,6 @@
+ 	struct MPT2SAS_DEVICE *sas_device_priv_data;
+ 	struct scsi_target *starget;
+ 	struct _raid_device *raid_device;
+-	struct _sas_device *sas_device;
+ 	unsigned long flags;
+ 
+ 	sas_device_priv_data = kzalloc(sizeof(struct scsi_device), GFP_KERNEL);
+@@ -1318,21 +1318,8 @@
+ 		if (raid_device)
+ 			raid_device->sdev = sdev; /* raid is single lun */
+ 		spin_unlock_irqrestore(&ioc->raid_device_lock, flags);
+-	} else {
+-		/* set TLR bit for SSP devices */
+-		if (!(ioc->facts.IOCCapabilities &
+-		     MPI2_IOCFACTS_CAPABILITY_TLR))
+-			goto out;
+-		spin_lock_irqsave(&ioc->sas_device_lock, flags);
+-		sas_device = mpt2sas_scsih_sas_device_find_by_sas_address(ioc,
+-		   sas_device_priv_data->sas_target->sas_address);
+-		spin_unlock_irqrestore(&ioc->sas_device_lock, flags);
+-		if (sas_device && sas_device->device_info &
+-		    MPI2_SAS_DEVICE_INFO_SSP_TARGET)
+-			sas_device_priv_data->flags |= MPT_DEVICE_TLR_ON;
+ 	}
+ 
+- out:
+ 	return 0;
+ }
+ 
+@@ -1599,6 +1586,32 @@
+ }
+ 
+ /**
++ * _scsih_enable_tlr - setting TLR flags
++ * @ioc: per adapter object
++ * @sdev: scsi device struct
++ *
++ * Enabling Transaction Layer Retries for tape devices when
++ * vpd page 0x90 is present
++ *
++ */
++static void
++_scsih_enable_tlr(struct MPT2SAS_ADAPTER *ioc, struct scsi_device *sdev)
++{
++	/* only for TAPE */
++	if (sdev->type != TYPE_TAPE)
++		return;
++
++	if (!(ioc->facts.IOCCapabilities & MPI2_IOCFACTS_CAPABILITY_TLR))
++		return;
++
++	sas_enable_tlr(sdev);
++	sdev_printk(KERN_INFO, sdev, "TLR %s\n",
++	    sas_is_tlr_enabled(sdev) ? "Enabled" : "Disabled");
++	return;
++
++}
++
++/**
+  * _scsih_slave_configure - device configure routine.
+  * @sdev: scsi device struct
+  *
+@@ -1743,8 +1756,10 @@
+ 
+ 	_scsih_change_queue_depth(sdev, qdepth, SCSI_QDEPTH_DEFAULT);
+ 
+-	if (ssp_target)
++	if (ssp_target) {
+ 		sas_read_port_mode_page(sdev);
++		_scsih_enable_tlr(ioc, sdev);
++	}
+ 	return 0;
+ }
+ 
+@@ -2984,8 +2999,9 @@
+ 
+ 	} else
+ 		mpi_control |= MPI2_SCSIIO_CONTROL_SIMPLEQ;
+-
+-	if ((sas_device_priv_data->flags & MPT_DEVICE_TLR_ON))
++	/* Make sure Device is not raid volume */
++	if (!_scsih_is_raid(&scmd->device->sdev_gendev) &&
++	    sas_is_tlr_enabled(scmd->device))
+ 		mpi_control |= MPI2_SCSIIO_CONTROL_TLR_ON;
+ 
+ 	smid = mpt2sas_base_get_smid_scsiio(ioc, ioc->scsi_io_cb_idx, scmd);
+@@ -3066,7 +3082,7 @@
+ 
+ #ifdef CONFIG_SCSI_MPT2SAS_LOGGING
+ /**
+- * _scsih_scsi_ioc_info - translated non-succesfull SCSI_IO request
++ * _scsih_scsi_ioc_info - translated non-successfull SCSI_IO request
+  * @ioc: per adapter object
+  * @scmd: pointer to scsi command object
+  * @mpi_reply: reply mf payload returned from firmware
+@@ -3377,10 +3393,12 @@
+ 		    le32_to_cpu(mpi_reply->ResponseInfo) & 0xFF;
+ 	if (!sas_device_priv_data->tlr_snoop_check) {
+ 		sas_device_priv_data->tlr_snoop_check++;
+-		if ((sas_device_priv_data->flags & MPT_DEVICE_TLR_ON) &&
+-		    response_code == MPI2_SCSITASKMGMT_RSP_INVALID_FRAME)
+-			sas_device_priv_data->flags &=
+-			    ~MPT_DEVICE_TLR_ON;
++	if (!_scsih_is_raid(&scmd->device->sdev_gendev) &&
++		sas_is_tlr_enabled(scmd->device) &&
++		    response_code == MPI2_SCSITASKMGMT_RSP_INVALID_FRAME) {
++			sas_disable_tlr(scmd->device);
++			sdev_printk(KERN_INFO, scmd->device, "TLR disabled\n");
++		}
+ 	}
+ 
+ 	xfer_cnt = le32_to_cpu(mpi_reply->TransferCount);

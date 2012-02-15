@@ -1,0 +1,1433 @@
+diff -Naur linux-2.6.32.12/Documentation/networking/bonding.txt linux-2.6.32.12.bondnew/Documentation/networking/bonding.txt
+--- linux-2.6.32.12/Documentation/networking/bonding.txt	2010-04-26 07:43:31.000000000 -0700
++++ linux-2.6.32.12.bondnew/Documentation/networking/bonding.txt	2010-09-15 17:36:11.000000000 -0700
+@@ -1,7 +1,7 @@
+ 
+ 		Linux Ethernet Bonding Driver HOWTO
+ 
+-		Latest update: 12 November 2007
++		Latest update: 23 September 2009
+ 
+ Initial release : Thomas Davis <tadavis at lbl.gov>
+ Corrections, HA extensions : 2000/10/03-15 :
+@@ -49,6 +49,7 @@
+ 3.3	Configuring Bonding Manually with Ifenslave
+ 3.3.1		Configuring Multiple Bonds Manually
+ 3.4	Configuring Bonding Manually via Sysfs
++3.5	Overriding Configuration for Special Cases
+ 
+ 4. Querying Bonding Configuration
+ 4.1	Bonding Configuration
+@@ -614,6 +615,46 @@
+ 
+ 	The primary option is only valid for active-backup mode.
+ 
++primary_reselect
++
++	Specifies the reselection policy for the primary slave.  This
++	affects how the primary slave is chosen to become the active slave
++	when failure of the active slave or recovery of the primary slave
++	occurs.  This option is designed to prevent flip-flopping between
++	the primary slave and other slaves.  Possible values are:
++
++	always or 0 (default)
++
++		The primary slave becomes the active slave whenever it
++		comes back up.
++
++	better or 1
++
++		The primary slave becomes the active slave when it comes
++		back up, if the speed and duplex of the primary slave is
++		better than the speed and duplex of the current active
++		slave.
++
++	failure or 2
++
++		The primary slave becomes the active slave only if the
++		current active slave fails and the primary slave is up.
++
++	The primary_reselect setting is ignored in two cases:
++
++		If no slaves are active, the first slave to recover is
++		made the active slave.
++
++		When initially enslaved, the primary slave is always made
++		the active slave.
++
++	Changing the primary_reselect policy via sysfs will cause an
++	immediate selection of the best active slave according to the new
++	policy.  This may or may not result in a change of the active
++	slave, depending upon the circumstances.
++
++	This option was added for bonding version 3.6.0.
++
+ updelay
+ 
+ 	Specifies the time, in milliseconds, to wait before enabling a
+@@ -1278,8 +1319,87 @@
+ echo +eth2 > /sys/class/net/bond1/bonding/slaves
+ echo +eth3 > /sys/class/net/bond1/bonding/slaves
+ 
++3.5 Overriding Configuration for Special Cases
++----------------------------------------------
++When using the bonding driver, the physical port which transmits a frame is
++typically selected by the bonding driver, and is not relevant to the user or
++system administrator.  The output port is simply selected using the policies of
++the selected bonding mode.  On occasion however, it is helpful to direct certain
++classes of traffic to certain physical interfaces on output to implement
++slightly more complex policies.  For example, to reach a web server over a
++bonded interface in which eth0 connects to a private network, while eth1
++connects via a public network, it may be desirous to bias the bond to send said
++traffic over eth0 first, using eth1 only as a fall back, while all other traffic
++can safely be sent over either interface.  Such configurations may be achieved
++using the traffic control utilities inherent in linux.
++
++By default the bonding driver is multiqueue aware and 16 queues are created
++when the driver initializes (see Documentation/networking/multiqueue.txt
++for details).  If more or less queues are desired the module parameter
++tx_queues can be used to change this value.  There is no sysfs parameter
++available as the allocation is done at module init time.
++
++The output of the file /proc/net/bonding/bondX has changed so the output Queue
++ID is now printed for each slave:
++
++Bonding Mode: fault-tolerance (active-backup)
++Primary Slave: None
++Currently Active Slave: eth0
++MII Status: up
++MII Polling Interval (ms): 0
++Up Delay (ms): 0
++Down Delay (ms): 0
++
++Slave Interface: eth0
++MII Status: up
++Link Failure Count: 0
++Permanent HW addr: 00:1a:a0:12:8f:cb
++Slave queue ID: 0
++
++Slave Interface: eth1
++MII Status: up
++Link Failure Count: 0
++Permanent HW addr: 00:1a:a0:12:8f:cc
++Slave queue ID: 2
++
++The queue_id for a slave can be set using the command:
++
++# echo "eth1:2" > /sys/class/net/bond0/bonding/queue_id
++
++Any interface that needs a queue_id set should set it with multiple calls
++like the one above until proper priorities are set for all interfaces.  On
++distributions that allow configuration via initscripts, multiple 'queue_id'
++arguments can be added to BONDING_OPTS to set all needed slave queues.
++
++These queue id's can be used in conjunction with the tc utility to configure
++a multiqueue qdisc and filters to bias certain traffic to transmit on certain
++slave devices.  For instance, say we wanted, in the above configuration to
++force all traffic bound to 192.168.1.100 to use eth1 in the bond as its output
++device. The following commands would accomplish this:
++
++# tc qdisc add dev bond0 handle 1 root multiq
++
++# tc filter add dev bond0 protocol ip parent 1: prio 1 u32 match ip dst \
++	192.168.1.100 action skbedit queue_mapping 2
++
++These commands tell the kernel to attach a multiqueue queue discipline to the
++bond0 interface and filter traffic enqueued to it, such that packets with a dst
++ip of 192.168.1.100 have their output queue mapping value overwritten to 2.
++This value is then passed into the driver, causing the normal output path
++selection policy to be overridden, selecting instead qid 2, which maps to eth1.
++
++Note that qid values begin at 1.  Qid 0 is reserved to initiate to the driver
++that normal output policy selection should take place.  One benefit to simply
++leaving the qid for a slave to 0 is the multiqueue awareness in the bonding
++driver that is now present.  This awareness allows tc filters to be placed on
++slave devices as well as bond devices and the bonding driver will simply act as
++a pass-through for selecting output queues on the slave device rather than 
++output port selection.
++
++This feature first appeared in bonding driver version 3.7.0 and support for
++output slave selection was limited to round-robin and active-backup modes.
+ 
+-4. Querying Bonding Configuration 
++4 Querying Bonding Configuration
+ =================================
+ 
+ 4.1 Bonding Configuration
+diff -Naur linux-2.6.32.12/drivers/net/bonding/bond_alb.c linux-2.6.32.12.bondnew/drivers/net/bonding/bond_alb.c
+--- linux-2.6.32.12/drivers/net/bonding/bond_alb.c	2010-04-26 07:43:31.000000000 -0700
++++ linux-2.6.32.12.bondnew/drivers/net/bonding/bond_alb.c	2010-09-15 17:36:11.000000000 -0700
+@@ -27,6 +27,7 @@
+ #include <linux/spinlock.h>
+ #include <linux/slab.h>
+ #include <linux/timer.h>
++#include <linux/kernel.h>
+ #include <linux/ip.h>
+ #include <linux/ipv6.h>
+ #include <linux/if_arp.h>
+@@ -70,7 +71,7 @@
+ #define RLB_HASH_TABLE_SIZE	256
+ #define RLB_NULL_INDEX		0xffffffff
+ #define RLB_UPDATE_DELAY	2*ALB_TIMER_TICKS_PER_SEC /* 2 seconds */
+-#define RLB_ARP_BURST_SIZE	2
++#define RLB_ARP_BURST_SIZE	1
+ #define RLB_UPDATE_RETRY	3	/* 3-ticks - must be smaller than the rlb
+ 					 * rebalance interval (5 min).
+ 					 */
+@@ -232,34 +233,29 @@
+ 	_unlock_tx_hashtbl(bond);
+ }
+ 
++static long long compute_gap(struct slave *slave)
++{
++	return (s64) (slave->speed << 20) - /* Convert to Megabit per sec */
++			(s64) (SLAVE_TLB_INFO(slave).load << 3); /* Bytes to bits */
++}
++
++
++
+ /* Caller must hold bond lock for read */
+ static struct slave *tlb_get_least_loaded_slave(struct bonding *bond)
+ {
+ 	struct slave *slave, *least_loaded;
+-	s64 max_gap;
+-	int i, found = 0;
+-
+-	/* Find the first enabled slave */
+-	bond_for_each_slave(bond, slave, i) {
+-		if (SLAVE_IS_OK(slave)) {
+-			found = 1;
+-			break;
+-		}
+-	}
+-
+-	if (!found) {
+-		return NULL;
+-	}
++	long long max_gap;
++	int i;
+ 
+-	least_loaded = slave;
+-	max_gap = (s64)(slave->speed << 20) - /* Convert to Megabit per sec */
+-			(s64)(SLAVE_TLB_INFO(slave).load << 3); /* Bytes to bits */
++	least_loaded = NULL;
++	max_gap = LLONG_MIN;
+ 
+ 	/* Find the slave with the largest gap */
+-	bond_for_each_slave_from(bond, slave, i, least_loaded) {
++	bond_for_each_slave(bond, slave, i) {
+ 		if (SLAVE_IS_OK(slave)) {
+-			s64 gap = (s64)(slave->speed << 20) -
+-					(s64)(SLAVE_TLB_INFO(slave).load << 3);
++			long long gap = compute_gap(slave);
++
+ 			if (max_gap < gap) {
+ 				least_loaded = slave;
+ 				max_gap = gap;
+@@ -339,11 +335,18 @@
+ 
+ 	if ((client_info->assigned) &&
+ 	    (client_info->ip_src == arp->ip_dst) &&
+-	    (client_info->ip_dst == arp->ip_src)) {
++	    (client_info->ip_dst == arp->ip_src) &&
++		(compare_ether_addr_64bits(client_info->mac_dst, arp->mac_src))) {
+ 		/* update the clients MAC address */
+ 		memcpy(client_info->mac_dst, arp->mac_src, ETH_ALEN);
+-		client_info->ntt = 1;
++		if (client_info->ntt == 2) {
++			client_info->ntt = 0;
++		} else {
++			client_info->ntt = 1;
++		}
+ 		bond_info->rx_ntt = 1;
++		pr_debug("Updated client MAC: %pM / " NIPQUAD_FMT " ntt:%d\n",
++			arp->mac_src, NIPQUAD(client_info->ip_dst), client_info->ntt);
+ 	}
+ 
+ 	_unlock_rx_hashtbl(bond);
+@@ -351,7 +354,7 @@
+ 
+ static int rlb_arp_recv(struct sk_buff *skb, struct net_device *bond_dev, struct packet_type *ptype, struct net_device *orig_dev)
+ {
+-	struct bonding *bond;
++	struct bonding *bond = netdev_priv(bond_dev);
+ 	struct arp_pkt *arp = (struct arp_pkt *)skb->data;
+ 	int res = NET_RX_DROP;
+ 
+@@ -362,7 +365,8 @@
+ 		bond_dev = vlan_dev_real_dev(bond_dev);
+ 
+ 	if (!(bond_dev->priv_flags & IFF_BONDING) ||
+-	    !(bond_dev->flags & IFF_MASTER))
++	    !(bond_dev->flags & IFF_MASTER) ||
++		(bond->params.mode != BOND_MODE_ALB))
+ 		goto out;
+ 
+ 	if (!arp) {
+@@ -379,7 +383,12 @@
+ 		/* update rx hash table for this ARP */
+ 		bond = netdev_priv(bond_dev);
+ 		rlb_update_entry_from_arp(bond, arp);
+-		pr_debug("Server received an ARP Reply from client\n");
++		pr_debug("Server received ARP Reply packet: src %pM / " NIPQUAD_FMT ", dst %pM / " NIPQUAD_FMT "\n",
++			arp->mac_src, NIPQUAD(arp->ip_src), arp->mac_dst, NIPQUAD(arp->ip_dst));
++	}
++	else if (arp->op_code == htons(ARPOP_REQUEST)) {
++		pr_debug("Server received ARP Solicitation packet: src %pM / " NIPQUAD_FMT ", dst %pM / " NIPQUAD_FMT "\n",
++			 arp->mac_src, NIPQUAD(arp->ip_src), arp->mac_dst, NIPQUAD(arp->ip_dst));
+ 	}
+ 
+ 	res = NET_RX_SUCCESS;
+@@ -535,6 +544,10 @@
+ 			}
+ 		}
+ 
++		pr_debug("ARP xmit packet: src %pM / " NIPQUAD_FMT ", dst %pM / " NIPQUAD_FMT "\n",
++			client_info->slave->dev->dev_addr, NIPQUAD(client_info->ip_src), 
++			client_info->mac_dst, NIPQUAD(client_info->ip_dst));
++
+ 		arp_xmit(skb);
+ 	}
+ }
+@@ -599,7 +612,7 @@
+ }
+ 
+ /* mark all clients using src_ip to be updated */
+-static void rlb_req_update_subnet_clients(struct bonding *bond, __be32 src_ip)
++static void rlb_req_update_subnet_clients(struct bonding *bond, __be32 src_ip, __be32 dst_ip)
+ {
+ 	struct alb_bond_info *bond_info = &(BOND_ALB_INFO(bond));
+ 	struct rlb_client_info *client_info;
+@@ -622,13 +635,25 @@
+ 		 * to the team's address (curr_active_slave) and have a known
+ 		 * unicast mac address.
+ 		 */
++		pr_debug("Subnet update: src " NIPQUAD_FMT " dst " NIPQUAD_FMT "\n",
++				NIPQUAD(client_info->ip_src), NIPQUAD(client_info->ip_dst));
++
+ 		if ((client_info->ip_src == src_ip) &&
++			(client_info->ip_dst != dst_ip) &&
+ 		    compare_ether_addr_64bits(client_info->slave->dev->dev_addr,
+ 			   bond->dev->dev_addr) &&
+ 		    compare_ether_addr_64bits(client_info->mac_dst, mac_bcast)) {
+ 			client_info->ntt = 1;
+ 			bond_info->rx_ntt = 1;
++			pr_debug("Subnet update: " NIPQUAD_FMT " scheduling update\n", NIPQUAD(client_info->ip_dst));
+ 		}
++
++		/* do not update the client we just sent an arp request to */
++        if (client_info->ip_dst == dst_ip) {
++            client_info->ntt = 2;
++			pr_debug("Subnet update: " NIPQUAD_FMT " disabling update\n", NIPQUAD(client_info->ip_dst));
++        }
++
+ 	}
+ 
+ 	_unlock_rx_hashtbl(bond);
+@@ -660,6 +685,10 @@
+ 			assigned_slave = client_info->slave;
+ 			if (assigned_slave) {
+ 				_unlock_rx_hashtbl(bond);
++
++				pr_debug("Bond: using assigned entry for " NIPQUAD_FMT " - %pM\n",
++						NIPQUAD(arp->ip_dst), client_info->slave->dev->dev_addr);
++
+ 				return assigned_slave;
+ 			}
+ 		} else {
+@@ -677,6 +706,9 @@
+ 	/* assign a new slave */
+ 	assigned_slave = rlb_next_rx_slave(bond);
+ 
++	pr_debug("Bond: assigned new entry for " NIPQUAD_FMT " - %pM\n",
++		NIPQUAD(arp->ip_dst), assigned_slave->dev->dev_addr);
++
+ 	if (assigned_slave) {
+ 		client_info->ip_src = arp->ip_src;
+ 		client_info->ip_dst = arp->ip_dst;
+@@ -733,7 +765,8 @@
+ 		if (tx_slave) {
+ 			memcpy(arp->mac_src,tx_slave->dev->dev_addr, ETH_ALEN);
+ 		}
+-		pr_debug("Server sent ARP Reply packet\n");
++		pr_debug("Server sent ARP Reply packet: src %pM / " NIPQUAD_FMT ", dst %pM / " NIPQUAD_FMT "\n",
++			arp->mac_src, NIPQUAD(arp->ip_src), arp->mac_dst, NIPQUAD(arp->ip_dst));
+ 	} else if (arp->op_code == htons(ARPOP_REQUEST)) {
+ 		/* Create an entry in the rx_hashtbl for this client as a
+ 		 * place holder.
+@@ -752,8 +785,9 @@
+ 		 * the primary slave. We must register these clients to be
+ 		 * updated with their assigned mac.
+ 		 */
+-		rlb_req_update_subnet_clients(bond, arp->ip_src);
+-		pr_debug("Server sent ARP Request packet\n");
++		rlb_req_update_subnet_clients(bond, arp->ip_src, arp->ip_dst);
++		pr_debug("Server sent an ARP Solicitation packet: src %s / " NIPQUAD_FMT ", dst %s / " NIPQUAD_FMT "\n",
++			arp->mac_src, NIPQUAD(arp->ip_src), arp->mac_dst, NIPQUAD(arp->ip_dst));
+ 	}
+ 
+ 	return tx_slave;
+diff -Naur linux-2.6.32.12/drivers/net/bonding/bonding.h linux-2.6.32.12.bondnew/drivers/net/bonding/bonding.h
+--- linux-2.6.32.12/drivers/net/bonding/bonding.h	2010-04-26 07:43:31.000000000 -0700
++++ linux-2.6.32.12.bondnew/drivers/net/bonding/bonding.h	2010-09-15 17:36:11.000000000 -0700
+@@ -23,8 +23,8 @@
+ #include "bond_3ad.h"
+ #include "bond_alb.h"
+ 
+-#define DRV_VERSION	"3.5.0"
+-#define DRV_RELDATE	"November 4, 2008"
++#define DRV_VERSION	"3.7.2"
++#define DRV_RELDATE	"August 30, 2010"
+ #define DRV_NAME	"bonding"
+ #define DRV_DESCRIPTION	"Ethernet Channel Bonding Driver"
+ 
+@@ -62,6 +62,9 @@
+ 		 ((mode) == BOND_MODE_TLB)          ||	\
+ 		 ((mode) == BOND_MODE_ALB))
+ 
++#define TX_QUEUE_OVERRIDE(mode)				\
++			(((mode) == BOND_MODE_ACTIVEBACKUP) ||	\
++			 ((mode) == BOND_MODE_ROUNDROBIN))
+ /*
+  * Less bad way to call ioctl from within the kernel; this needs to be
+  * done some other way to get the call out of interrupt context.
+@@ -131,7 +134,10 @@
+ 	int lacp_fast;
+ 	int ad_select;
+ 	char primary[IFNAMSIZ];
++	int primary_reselect;
+ 	__be32 arp_targets[BOND_MAX_ARP_TARGETS];
++	int tx_queues;
++	int all_slaves_active;
+ };
+ 
+ struct bond_parm_tbl {
+@@ -160,12 +166,12 @@
+ 	s8     link;    /* one of BOND_LINK_XXXX */
+ 	s8     new_link;
+ 	s8     state;   /* one of BOND_STATE_XXXX */
+-	u32    original_flags;
+ 	u32    original_mtu;
+ 	u32    link_failure_count;
+ 	u8     perm_hwaddr[ETH_ALEN];
+ 	u16    speed;
+ 	u8     duplex;
++	u16    queue_id;
+ 	struct ad_slave_info ad_info; /* HUGE - better to dynamically alloc */
+ 	struct tlb_slave_info tlb_info;
+ };
+@@ -190,6 +196,7 @@
+ 	struct   slave *curr_active_slave;
+ 	struct   slave *current_arp_slave;
+ 	struct   slave *primary_slave;
++	bool     force_primary;
+ 	s32      slave_cnt; /* never change this value outside the attach/detach wrappers */
+ 	rwlock_t lock;
+ 	rwlock_t curr_slave_lock;
+@@ -258,6 +265,10 @@
+ 		|| bond->params.mode == BOND_MODE_ALB;
+ }
+ 
++#define BOND_PRI_RESELECT_ALWAYS	0
++#define BOND_PRI_RESELECT_BETTER	1
++#define BOND_PRI_RESELECT_FAILURE	2
++
+ #define BOND_FOM_NONE			0
+ #define BOND_FOM_ACTIVE			1
+ #define BOND_FOM_FOLLOW			2
+@@ -288,7 +299,8 @@
+ 	struct bonding *bond = netdev_priv(slave->dev->master);
+ 	if (!bond_is_lb(bond))
+ 		slave->state = BOND_STATE_BACKUP;
+-	slave->dev->priv_flags |= IFF_SLAVE_INACTIVE;
++	if (!bond->params.all_slaves_active)
++		slave->dev->priv_flags |= IFF_SLAVE_INACTIVE;
+ 	if (slave_do_arp_validate(bond, slave))
+ 		slave->dev->priv_flags |= IFF_SLAVE_NEEDARP;
+ }
+@@ -348,6 +360,7 @@
+ extern const struct bond_parm_tbl xmit_hashtype_tbl[];
+ extern const struct bond_parm_tbl arp_validate_tbl[];
+ extern const struct bond_parm_tbl fail_over_mac_tbl[];
++extern const struct bond_parm_tbl pri_reselect_tbl[];
+ extern struct bond_parm_tbl ad_select_tbl[];
+ 
+ #if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
+diff -Naur linux-2.6.32.12/drivers/net/bonding/bond_main.c linux-2.6.32.12.bondnew/drivers/net/bonding/bond_main.c
+--- linux-2.6.32.12/drivers/net/bonding/bond_main.c	2010-04-26 07:43:31.000000000 -0700
++++ linux-2.6.32.12.bondnew/drivers/net/bonding/bond_main.c	2010-09-15 17:36:11.000000000 -0700
+@@ -86,6 +86,7 @@
+ #define BOND_LINK_ARP_INTERV	0
+ 
+ static int max_bonds	= BOND_DEFAULT_MAX_BONDS;
++static int tx_queues	= BOND_DEFAULT_TX_QUEUES;
+ static int num_grat_arp = 1;
+ static int num_unsol_na = 1;
+ static int miimon	= BOND_LINK_MON_INTERV;
+@@ -94,6 +95,7 @@
+ static int use_carrier	= 1;
+ static char *mode;
+ static char *primary;
++static char *primary_reselect;
+ static char *lacp_rate;
+ static char *ad_select;
+ static char *xmit_hash_policy;
+@@ -101,10 +103,13 @@
+ static char *arp_ip_target[BOND_MAX_ARP_TARGETS];
+ static char *arp_validate;
+ static char *fail_over_mac;
++static int all_slaves_active = 0;
+ static struct bond_params bonding_defaults;
+ 
+ module_param(max_bonds, int, 0);
+ MODULE_PARM_DESC(max_bonds, "Max number of bonded devices");
++module_param(tx_queues, int, 0);
++MODULE_PARM_DESC(tx_queues, "Max number of transmit queues (default = 16)");
+ module_param(num_grat_arp, int, 0644);
+ MODULE_PARM_DESC(num_grat_arp, "Number of gratuitous ARP packets to send on failover event");
+ module_param(num_unsol_na, int, 0644);
+@@ -126,6 +131,14 @@
+ 		       "6 for balance-alb");
+ module_param(primary, charp, 0);
+ MODULE_PARM_DESC(primary, "Primary network device to use");
++module_param(primary_reselect, charp, 0);
++MODULE_PARM_DESC(primary_reselect, "Reselect primary slave "
++				   "once it comes up; "
++				   "0 for always (default), "
++				   "1 for only if speed of primary is "
++				   "better, "
++				   "2 for only on active slave "
++				   "failure");
+ module_param(lacp_rate, charp, 0);
+ MODULE_PARM_DESC(lacp_rate, "LACPDU tx rate to request from 802.3ad partner "
+ 			    "(slow/fast)");
+@@ -142,6 +155,10 @@
+ MODULE_PARM_DESC(arp_validate, "validate src/dst of ARP probes: none (default), active, backup or all");
+ module_param(fail_over_mac, charp, 0);
+ MODULE_PARM_DESC(fail_over_mac, "For active-backup, do not set all slaves to the same MAC.  none (default), active or follow");
++module_param(all_slaves_active, int, 0);
++MODULE_PARM_DESC(all_slaves_active, "Keep all frames received on an interface"
++				     "by setting active flag for all slaves.  "
++				     "0 for never (default), 1 for always.");
+ 
+ /*----------------------------- Global variables ----------------------------*/
+ 
+@@ -200,6 +217,13 @@
+ {	NULL,			-1},
+ };
+ 
++const struct bond_parm_tbl pri_reselect_tbl[] = {
++{	"always",		BOND_PRI_RESELECT_ALWAYS},
++{	"better",		BOND_PRI_RESELECT_BETTER},
++{	"failure",		BOND_PRI_RESELECT_FAILURE},
++{	NULL,			-1},
++};
++
+ struct bond_parm_tbl ad_select_tbl[] = {
+ {	"stable",	BOND_AD_STABLE},
+ {	"bandwidth",	BOND_AD_BANDWIDTH},
+@@ -1070,6 +1094,25 @@
+ 
+ }
+ 
++static bool bond_should_change_active(struct bonding *bond)
++{
++	struct slave *prim = bond->primary_slave;
++	struct slave *curr = bond->curr_active_slave;
++
++	if (!prim || !curr || curr->link != BOND_LINK_UP)
++		return true;
++	if (bond->force_primary) {
++		bond->force_primary = false;
++		return true;
++	}
++	if (bond->params.primary_reselect == BOND_PRI_RESELECT_BETTER &&
++	    (prim->speed < curr->speed ||
++	     (prim->speed == curr->speed && prim->duplex <= curr->duplex)))
++		return false;
++	if (bond->params.primary_reselect == BOND_PRI_RESELECT_FAILURE)
++		return false;
++	return true;
++}
+ 
+ /**
+  * find_best_interface - select the best available slave to be the active one
+@@ -1094,7 +1137,8 @@
+ 	}
+ 
+ 	if ((bond->primary_slave) &&
+-	    bond->primary_slave->link == BOND_LINK_UP) {
++	    bond->primary_slave->link == BOND_LINK_UP &&
++	    bond_should_change_active(bond)) {
+ 		new_active = bond->primary_slave;
+ 	}
+ 
+@@ -1464,14 +1508,27 @@
+ 			pr_debug("%s: change device type from %d to %d\n",
+ 				bond_dev->name, bond_dev->type, slave_dev->type);
+ 
+-			netdev_bonding_change(bond_dev, NETDEV_BONDING_OLDTYPE);
++			res = netdev_bonding_change(bond_dev,
++						    NETDEV_PRE_TYPE_CHANGE);
++			res = notifier_to_errno(res);
++			if (res) {
++				pr_err("%s: refused to change device type\n",
++				       bond_dev->name);
++				res = -EBUSY;
++				goto err_undo_flags;
++			}
++
++			/* Flush unicast and multicast addresses */
++			dev_unicast_flush(bond_dev);
++			dev_addr_discard(bond_dev);
+ 
+ 			if (slave_dev->type != ARPHRD_ETHER)
+ 				bond_setup_by_slave(bond_dev, slave_dev);
+ 			else
+ 				ether_setup(bond_dev);
+ 
+-			netdev_bonding_change(bond_dev, NETDEV_BONDING_NEWTYPE);
++			netdev_bonding_change(bond_dev,
++					      NETDEV_POST_TYPE_CHANGE);
+ 		}
+ 	} else if (bond_dev->type != slave_dev->type) {
+ 		pr_err(DRV_NAME ": %s ether type (%d) is different "
+@@ -1501,16 +1558,32 @@
+ 		}
+ 	}
+ 
++	/* If this is the first slave, then we need to set the master's hardware
++	 * address to be the same as the slave's. */
++	if (bond->slave_cnt == 0)
++		memcpy(bond->dev->dev_addr, slave_dev->dev_addr,
++		       slave_dev->addr_len);
++
++
+ 	new_slave = kzalloc(sizeof(struct slave), GFP_KERNEL);
+ 	if (!new_slave) {
+ 		res = -ENOMEM;
+ 		goto err_undo_flags;
+ 	}
+ 
+-	/* save slave's original flags before calling
+-	 * netdev_set_master and dev_open
++	/*
++	 * Set the new_slave's queue_id to be zero.  Queue ID mapping
++	 * is set via sysfs or module option if desired.
+ 	 */
+-	new_slave->original_flags = slave_dev->flags;
++	new_slave->queue_id = 0;
++
++	/* Save slave's original mtu and then set it to match the bond */
++	new_slave->original_mtu = slave_dev->mtu;
++	res = dev_set_mtu(slave_dev, bond->dev->mtu);
++	if (res) {
++		pr_debug("Error %d calling dev_set_mtu\n", res);
++		goto err_free;
++	}
+ 
+ 	/*
+ 	 * Save slave's original ("permanent") mac address for modes
+@@ -1529,7 +1602,7 @@
+ 		res = dev_set_mac_address(slave_dev, &addr);
+ 		if (res) {
+ 			pr_debug("Error %d calling set_mac_address\n", res);
+-			goto err_free;
++			goto err_restore_mtu;
+ 		}
+ 	}
+ 
+@@ -1678,8 +1751,10 @@
+ 
+ 	if (USES_PRIMARY(bond->params.mode) && bond->params.primary[0]) {
+ 		/* if there is a primary slave, remember it */
+-		if (strcmp(bond->params.primary, new_slave->dev->name) == 0)
++		if (strcmp(bond->params.primary, new_slave->dev->name) == 0) {
+ 			bond->primary_slave = new_slave;
++			bond->force_primary = true;
++		}
+ 	}
+ 
+ 	write_lock_bh(&bond->curr_slave_lock);
+@@ -1769,6 +1844,9 @@
+ 		dev_set_mac_address(slave_dev, &addr);
+ 	}
+ 
++err_restore_mtu:
++	dev_set_mtu(slave_dev, new_slave->original_mtu);
++
+ err_free:
+ 	kfree(new_slave);
+ 
+@@ -1955,6 +2033,8 @@
+ 		dev_set_mac_address(slave_dev, &addr);
+ 	}
+ 
++	dev_set_mtu(slave_dev, slave->original_mtu);
++
+ 	slave_dev->priv_flags &= ~(IFF_MASTER_8023AD | IFF_MASTER_ALB |
+ 				   IFF_SLAVE_INACTIVE | IFF_BONDING |
+ 				   IFF_SLAVE_NEEDARP);
+@@ -3201,11 +3281,14 @@
+ 	}
+ 
+ 	if (USES_PRIMARY(bond->params.mode)) {
+-		seq_printf(seq, "Primary Slave: %s\n",
++		seq_printf(seq, "Primary Slave: %s",
+ 			   (bond->primary_slave) ?
+ 			   bond->primary_slave->dev->name : "None");
++		if (bond->primary_slave)
++			seq_printf(seq, " (primary_reselect %s)",
++		   pri_reselect_tbl[bond->params.primary_reselect].modename);
+ 
+-		seq_printf(seq, "Currently Active Slave: %s\n",
++		seq_printf(seq, "\nCurrently Active Slave: %s\n",
+ 			   (curr) ? curr->dev->name : "None");
+ 	}
+ 
+@@ -3289,6 +3372,7 @@
+ 		else
+ 			seq_puts(seq, "Aggregator ID: N/A\n");
+ 	}
++	seq_printf(seq, "Slave queue ID: %d\n", slave->queue_id);
+ }
+ 
+ static int bond_info_seq_show(struct seq_file *seq, void *v)
+@@ -4401,9 +4485,59 @@
+ 	}
+ }
+ 
++/*
++ * Lookup the slave that corresponds to a qid
++ */
++static inline int bond_slave_override(struct bonding *bond,
++				      struct sk_buff *skb)
++{
++	int i, res = 1;
++	struct slave *slave = NULL;
++	struct slave *check_slave;
++
++	read_lock(&bond->lock);
++
++	if (!BOND_IS_OK(bond) || !skb->queue_mapping)
++		goto out;
++
++	/* Find out if any slaves have the same mapping as this skb. */
++	bond_for_each_slave(bond, check_slave, i) {
++		if (check_slave->queue_id == skb->queue_mapping) {
++			slave = check_slave;
++			break;
++		}
++	}
++
++	/* If the slave isn't UP, use default transmit policy. */
++	if (slave && slave->queue_id && IS_UP(slave->dev) &&
++	    (slave->link == BOND_LINK_UP)) {
++		res = bond_dev_queue_xmit(bond, skb, slave->dev);
++	}
++
++out:
++	read_unlock(&bond->lock);
++	return res;
++}
++
++static u16 bond_select_queue(struct net_device *dev, struct sk_buff *skb)
++{
++	/*
++	 * This helper function exists to help dev_pick_tx get the correct
++	 * destination queue.  Using a helper function skips the a call to
++	 * skb_tx_hash and will put the skbs in the queue we expect on their
++	 * way down to the bonding driver.
++	 */
++	return skb->queue_mapping;
++}
++
+ static netdev_tx_t bond_start_xmit(struct sk_buff *skb, struct net_device *dev)
+ {
+-	const struct bonding *bond = netdev_priv(dev);
++	struct bonding *bond = netdev_priv(dev);
++
++	if (TX_QUEUE_OVERRIDE(bond->params.mode)) {
++		if (!bond_slave_override(bond, skb))
++			return NETDEV_TX_OK;
++	}
+ 
+ 	switch (bond->params.mode) {
+ 	case BOND_MODE_ROUNDROBIN:
+@@ -4490,6 +4624,7 @@
+ 	.ndo_open		= bond_open,
+ 	.ndo_stop		= bond_close,
+ 	.ndo_start_xmit		= bond_start_xmit,
++	.ndo_select_queue	= bond_select_queue,
+ 	.ndo_get_stats		= bond_get_stats,
+ 	.ndo_do_ioctl		= bond_do_ioctl,
+ 	.ndo_set_multicast_list	= bond_set_multicast_list,
+@@ -4646,7 +4781,7 @@
+ 
+ static int bond_check_params(struct bond_params *params)
+ {
+-	int arp_validate_value, fail_over_mac_value;
++	int arp_validate_value, fail_over_mac_value, primary_reselect_value;
+ 
+ 	/*
+ 	 * Convert string parameters.
+@@ -4780,6 +4915,20 @@
+ 		}
+ 	}
+ 
++	if (tx_queues < 1 || tx_queues > 255) {
++		pr_warning("Warning: tx_queues (%d) should be between "
++			   "1 and 255, resetting to %d\n",
++			   tx_queues, BOND_DEFAULT_TX_QUEUES);
++		tx_queues = BOND_DEFAULT_TX_QUEUES;
++	}
++
++	if ((all_slaves_active != 0) && (all_slaves_active != 1)) {
++		pr_warning("Warning: all_slaves_active module parameter (%d), "
++			   "not of valid value (0/1), so it was set to "
++			   "0\n", all_slaves_active);
++		all_slaves_active = 0;
++	}
++
+ 	/* reset values for TLB/ALB */
+ 	if ((bond_mode == BOND_MODE_TLB) ||
+ 	    (bond_mode == BOND_MODE_ALB)) {
+@@ -4945,6 +5094,20 @@
+ 		primary = NULL;
+ 	}
+ 
++	if (primary && primary_reselect) {
++		primary_reselect_value = bond_parse_parm(primary_reselect,
++							 pri_reselect_tbl);
++		if (primary_reselect_value == -1) {
++			pr_err(DRV_NAME
++			       ": Error: Invalid primary_reselect \"%s\"\n",
++			       primary_reselect ==
++					NULL ? "NULL" : primary_reselect);
++			return -EINVAL;
++		}
++	} else {
++		primary_reselect_value = BOND_PRI_RESELECT_ALWAYS;
++	}
++
+ 	if (fail_over_mac) {
+ 		fail_over_mac_value = bond_parse_parm(fail_over_mac,
+ 						      fail_over_mac_tbl);
+@@ -4976,7 +5139,10 @@
+ 	params->use_carrier = use_carrier;
+ 	params->lacp_fast = lacp_fast;
+ 	params->primary[0] = 0;
++	params->primary_reselect = primary_reselect_value;
+ 	params->fail_over_mac = fail_over_mac_value;
++	params->tx_queues = tx_queues;
++	params->all_slaves_active = all_slaves_active;
+ 
+ 	if (primary) {
+ 		strncpy(params->primary, primary, IFNAMSIZ);
+@@ -5049,8 +5215,8 @@
+ 		goto out_rtnl;
+ 	}
+ 
+-	bond_dev = alloc_netdev(sizeof(struct bonding), name ? name : "",
+-				bond_setup);
++	bond_dev = alloc_netdev_mq(sizeof(struct bonding), name ? name : "",
++				bond_setup, tx_queues);
+ 	if (!bond_dev) {
+ 		pr_err(DRV_NAME ": %s: eek! can't alloc netdev!\n",
+ 		       name);
+diff -Naur linux-2.6.32.12/drivers/net/bonding/bond_sysfs.c linux-2.6.32.12.bondnew/drivers/net/bonding/bond_sysfs.c
+--- linux-2.6.32.12/drivers/net/bonding/bond_sysfs.c	2010-04-26 07:43:31.000000000 -0700
++++ linux-2.6.32.12.bondnew/drivers/net/bonding/bond_sysfs.c	2010-09-15 17:36:11.000000000 -0700
+@@ -203,7 +203,8 @@
+ /*
+  * Set the slaves in the current bond.  The bond interface must be
+  * up for this to succeed.
+- * This function is largely the same flow as bonding_update_bonds().
++ * This is supposed to be only thin wrapper for bond_enslave and bond_release.
++ * All hard work should be done there.
+  */
+ static ssize_t bonding_store_slaves(struct device *d,
+ 				    struct device_attribute *attr,
+@@ -211,10 +212,8 @@
+ {
+ 	char command[IFNAMSIZ + 1] = { 0, };
+ 	char *ifname;
+-	int i, res, found, ret = count;
+-	u32 original_mtu;
+-	struct slave *slave;
+-	struct net_device *dev = NULL;
++	int res, ret = count;
++	struct net_device *dev;
+ 	struct bonding *bond = to_bond(d);
+ 
+ 	/* Quick sanity check -- is the bond interface up? */
+@@ -223,8 +222,6 @@
+ 			   "interface is down.\n", bond->dev->name);
+ 	}
+ 
+-	/* Note:  We can't hold bond->lock here, as bond_create grabs it. */
+-
+ 	if (!rtnl_trylock())
+ 		return restart_syscall();
+ 
+@@ -234,97 +231,32 @@
+ 	    !dev_valid_name(ifname))
+ 		goto err_no_cmd;
+ 
+-	if (command[0] == '+') {
+-
+-		/* Got a slave name in ifname.  Is it already in the list? */
+-		found = 0;
+-
+-		/* FIXME: get netns from sysfs object */
+-		dev = __dev_get_by_name(&init_net, ifname);
+-		if (!dev) {
+-			pr_info(DRV_NAME
+-			       ": %s: Interface %s does not exist!\n",
+-			       bond->dev->name, ifname);
+-			ret = -ENODEV;
+-			goto out;
+-		}
+-
+-		if (dev->flags & IFF_UP) {
+-			pr_err(DRV_NAME
+-			       ": %s: Error: Unable to enslave %s "
+-			       "because it is already up.\n",
+-			       bond->dev->name, dev->name);
+-			ret = -EPERM;
+-			goto out;
+-		}
+-
+-		read_lock(&bond->lock);
+-		bond_for_each_slave(bond, slave, i)
+-			if (slave->dev == dev) {
+-				pr_err(DRV_NAME
+-				       ": %s: Interface %s is already enslaved!\n",
+-				       bond->dev->name, ifname);
+-				ret = -EPERM;
+-				read_unlock(&bond->lock);
+-				goto out;
+-			}
+-		read_unlock(&bond->lock);
+-
+-		pr_info(DRV_NAME ": %s: Adding slave %s.\n",
+-			bond->dev->name, ifname);
++	dev = __dev_get_by_name(dev_net(bond->dev), ifname);
++	if (!dev) {
++		pr_info("%s: Interface %s does not exist!\n", bond->dev->name, ifname);
++		ret = -ENODEV;
++		goto out;
++	}
+ 
+-		/* If this is the first slave, then we need to set
+-		   the master's hardware address to be the same as the
+-		   slave's. */
+-		if (is_zero_ether_addr(bond->dev->dev_addr))
+-			memcpy(bond->dev->dev_addr, dev->dev_addr,
+-			       dev->addr_len);
+-
+-		/* Set the slave's MTU to match the bond */
+-		original_mtu = dev->mtu;
+-		res = dev_set_mtu(dev, bond->dev->mtu);
+-		if (res) {
+-			ret = res;
+-			goto out;
+-		}
++	switch (command[0]) {
++		case '+':
++			pr_info("%s: Adding slave %s.\n", bond->dev->name, dev->name);
++			res = bond_enslave(bond->dev, dev);
++			break;
++
++		case '-':
++			pr_info("%s: Removing slave %s.\n", bond->dev->name, dev->name);
++			res = bond_release(bond->dev, dev);
++			break;
+ 
+-		res = bond_enslave(bond->dev, dev);
+-		bond_for_each_slave(bond, slave, i)
+-			if (strnicmp(slave->dev->name, ifname, IFNAMSIZ) == 0)
+-				slave->original_mtu = original_mtu;
+-		if (res)
+-			ret = res;
++		default:
++			goto err_no_cmd;	
+ 
+-		goto out;
+ 	}
+ 
+-	if (command[0] == '-') {
+-		dev = NULL;
+-		original_mtu = 0;
+-		bond_for_each_slave(bond, slave, i)
+-			if (strnicmp(slave->dev->name, ifname, IFNAMSIZ) == 0) {
+-				dev = slave->dev;
+-				original_mtu = slave->original_mtu;
+-				break;
+-			}
+-		if (dev) {
+-			pr_info(DRV_NAME ": %s: Removing slave %s\n",
+-				bond->dev->name, dev->name);
+-				res = bond_release(bond->dev, dev);
+-			if (res) {
+-				ret = res;
+-				goto out;
+-			}
+-			/* set the slave MTU to the default */
+-			dev_set_mtu(dev, original_mtu);
+-		} else {
+-			pr_err(DRV_NAME ": unable to remove non-existent"
+-			       " slave %s for bond %s.\n",
+-				ifname, bond->dev->name);
+-			ret = -ENODEV;
+-		}
+-		goto out;
+-	}
++	if (res)
++		ret = res;
++	goto out;
+ 
+ err_no_cmd:
+ 	pr_err(DRV_NAME ": no command found in slaves file for bond %s. Use +ifname or -ifname.\n", bond->dev->name);
+@@ -1214,6 +1146,58 @@
+ 		   bonding_show_primary, bonding_store_primary);
+ 
+ /*
++ * Show and set the primary_reselect flag.
++ */
++static ssize_t bonding_show_primary_reselect(struct device *d,
++					     struct device_attribute *attr,
++					     char *buf)
++{
++	struct bonding *bond = to_bond(d);
++
++	return sprintf(buf, "%s %d\n",
++		       pri_reselect_tbl[bond->params.primary_reselect].modename,
++		       bond->params.primary_reselect);
++}
++
++static ssize_t bonding_store_primary_reselect(struct device *d,
++					      struct device_attribute *attr,
++					      const char *buf, size_t count)
++{
++	int new_value, ret = count;
++	struct bonding *bond = to_bond(d);
++
++	if (!rtnl_trylock())
++		return restart_syscall();
++
++	new_value = bond_parse_parm(buf, pri_reselect_tbl);
++	if (new_value < 0)  {
++		pr_err(DRV_NAME
++		       ": %s: Ignoring invalid primary_reselect value %.*s.\n",
++		       bond->dev->name,
++		       (int) strlen(buf) - 1, buf);
++		ret = -EINVAL;
++		goto out;
++	}
++
++	bond->params.primary_reselect = new_value;
++	pr_info(DRV_NAME ": %s: setting primary_reselect to %s (%d).\n",
++		bond->dev->name, pri_reselect_tbl[new_value].modename,
++		new_value);
++
++	read_lock(&bond->lock);
++	write_lock_bh(&bond->curr_slave_lock);
++	bond_select_active_slave(bond);
++	write_unlock_bh(&bond->curr_slave_lock);
++	read_unlock(&bond->lock);
++out:
++	rtnl_unlock();
++	return ret;
++}
++static DEVICE_ATTR(primary_reselect, S_IRUGO | S_IWUSR,
++		   bonding_show_primary_reselect,
++		   bonding_store_primary_reselect);
++
++/*
+  * Show and set the use_carrier flag.
+  */
+ static ssize_t bonding_show_carrier(struct device *d,
+@@ -1463,7 +1447,6 @@
+ }
+ static DEVICE_ATTR(ad_partner_key, S_IRUGO, bonding_show_ad_partner_key, NULL);
+ 
+-
+ /*
+  * Show current 802.3ad partner mac.
+  */
+@@ -1484,7 +1467,173 @@
+ }
+ static DEVICE_ATTR(ad_partner_mac, S_IRUGO, bonding_show_ad_partner_mac, NULL);
+ 
++/*
++ * Show the queue_ids of the slaves in the current bond.
++ */
++static ssize_t bonding_show_queue_id(struct device *d,
++				     struct device_attribute *attr,
++				     char *buf)
++{
++	struct slave *slave;
++	int i, res = 0;
++	struct bonding *bond = to_bond(d);
++
++	if (!rtnl_trylock())
++		return restart_syscall();
++
++	read_lock(&bond->lock);
++	bond_for_each_slave(bond, slave, i) {
++		if (res > (PAGE_SIZE - 6)) {
++			/* not enough space for another interface name */
++			if ((PAGE_SIZE - res) > 10)
++				res = PAGE_SIZE - 10;
++			res += sprintf(buf + res, "++more++ ");
++			break;
++		}
++		res += sprintf(buf + res, "%s:%d ",
++			       slave->dev->name, slave->queue_id);
++	}
++	read_unlock(&bond->lock);
++	if (res)
++		buf[res-1] = '\n'; /* eat the leftover space */
++	rtnl_unlock();
++	return res;
++}
++
++/*
++ * Set the queue_ids of the  slaves in the current bond.  The bond
++ * interface must be enslaved for this to work.
++ */
++static ssize_t bonding_store_queue_id(struct device *d,
++				      struct device_attribute *attr,
++				      const char *buffer, size_t count)
++{
++	struct slave *slave, *update_slave;
++	struct bonding *bond = to_bond(d);
++	u16 qid;
++	int i, ret = count;
++	char *delim;
++	struct net_device *sdev = NULL;
++
++	if (!rtnl_trylock())
++		return restart_syscall();
++
++	/* delim will point to queue id if successful */
++	delim = strchr(buffer, ':');
++	if (!delim)
++		goto err_no_cmd;
++
++	/*
++	 * Terminate string that points to device name and bump it
++	 * up one, so we can read the queue id there.
++	 */
++	*delim = '\0';
++	if (sscanf(++delim, "%hd\n", &qid) != 1)
++		goto err_no_cmd;
++
++	/* Check buffer length, valid ifname and queue id */
++	if (strlen(buffer) > IFNAMSIZ ||
++	    !dev_valid_name(buffer) ||
++	    qid > bond->params.tx_queues)
++		goto err_no_cmd;
++
++	/* Get the pointer to that interface if it exists */
++	sdev = __dev_get_by_name(dev_net(bond->dev), buffer);
++	if (!sdev)
++		goto err_no_cmd;
++
++	read_lock(&bond->lock);
++
++	/* Search for thes slave and check for duplicate qids */
++	update_slave = NULL;
++	bond_for_each_slave(bond, slave, i) {
++		if (sdev == slave->dev)
++			/*
++			 * We don't need to check the matching
++			 * slave for dups, since we're overwriting it
++			 */
++			update_slave = slave;
++		else if (qid && qid == slave->queue_id) {
++			goto err_no_cmd_unlock;
++		}
++	}
++
++	if (!update_slave)
++		goto err_no_cmd_unlock;
++
++	/* Actually set the qids for the slave */
++	update_slave->queue_id = qid;
++
++	read_unlock(&bond->lock);
++out:
++	rtnl_unlock();
++	return ret;
++
++err_no_cmd_unlock:
++	read_unlock(&bond->lock);
++err_no_cmd:
++	pr_info("invalid input for queue_id set for %s.\n",
++		bond->dev->name);
++	ret = -EPERM;
++	goto out;
++}
++
++static DEVICE_ATTR(queue_id, S_IRUGO | S_IWUSR, bonding_show_queue_id,
++		   bonding_store_queue_id);
++
++
++/*
++ * Show and set the all_slaves_active flag.
++ */
++static ssize_t bonding_show_slaves_active(struct device *d,
++					  struct device_attribute *attr,
++					  char *buf)
++{
++	struct bonding *bond = to_bond(d);
++
++	return sprintf(buf, "%d\n", bond->params.all_slaves_active);
++}
++
++static ssize_t bonding_store_slaves_active(struct device *d,
++					   struct device_attribute *attr,
++					   const char *buf, size_t count)
++{
++	int i, new_value, ret = count;
++	struct bonding *bond = to_bond(d);
++	struct slave *slave;
+ 
++	if (sscanf(buf, "%d", &new_value) != 1) {
++		pr_err("%s: no all_slaves_active value specified.\n",
++		       bond->dev->name);
++		ret = -EINVAL;
++		goto out;
++	}
++
++	if (new_value == bond->params.all_slaves_active)
++		goto out;
++
++	if ((new_value == 0) || (new_value == 1)) {
++		bond->params.all_slaves_active = new_value;
++	} else {
++		pr_info("%s: Ignoring invalid all_slaves_active value %d.\n",
++			bond->dev->name, new_value);
++		ret = -EINVAL;
++		goto out;
++	}
++
++	bond_for_each_slave(bond, slave, i) {
++		if (slave->state == BOND_STATE_BACKUP) {
++			if (new_value)
++				slave->dev->priv_flags &= ~IFF_SLAVE_INACTIVE;
++			else
++				slave->dev->priv_flags |= IFF_SLAVE_INACTIVE;
++		}
++	}
++out:
++	return count;
++}
++static DEVICE_ATTR(all_slaves_active, S_IRUGO | S_IWUSR,
++		   bonding_show_slaves_active, bonding_store_slaves_active);
+ 
+ static struct attribute *per_bond_attrs[] = {
+ 	&dev_attr_slaves.attr,
+@@ -1502,6 +1651,7 @@
+ 	&dev_attr_num_unsol_na.attr,
+ 	&dev_attr_miimon.attr,
+ 	&dev_attr_primary.attr,
++	&dev_attr_primary_reselect.attr,
+ 	&dev_attr_use_carrier.attr,
+ 	&dev_attr_active_slave.attr,
+ 	&dev_attr_mii_status.attr,
+@@ -1510,6 +1660,8 @@
+ 	&dev_attr_ad_actor_key.attr,
+ 	&dev_attr_ad_partner_key.attr,
+ 	&dev_attr_ad_partner_mac.attr,
++	&dev_attr_queue_id.attr,
++	&dev_attr_all_slaves_active.attr,
+ 	NULL,
+ };
+ 
+diff -Naur linux-2.6.32.12/drivers/net/bonding/Makefile linux-2.6.32.12.bondnew/drivers/net/bonding/Makefile
+--- linux-2.6.32.12/drivers/net/bonding/Makefile	2010-04-26 07:43:31.000000000 -0700
++++ linux-2.6.32.12.bondnew/drivers/net/bonding/Makefile	2010-09-15 17:36:11.000000000 -0700
+@@ -4,6 +4,8 @@
+ 
+ obj-$(CONFIG_BONDING) += bonding.o
+ 
++CFLAGS_bond_alb.o := -DDEBUG
++
+ bonding-objs := bond_main.o bond_3ad.o bond_alb.o bond_sysfs.o
+ 
+ ipv6-$(subst m,y,$(CONFIG_IPV6)) += bond_ipv6.o
+diff -Naur linux-2.6.32.12/include/linux/if_bonding.h linux-2.6.32.12.bondnew/include/linux/if_bonding.h
+--- linux-2.6.32.12/include/linux/if_bonding.h	2010-04-26 07:43:31.000000000 -0700
++++ linux-2.6.32.12.bondnew/include/linux/if_bonding.h	2010-09-15 17:36:11.000000000 -0700
+@@ -83,6 +83,7 @@
+ 
+ #define BOND_DEFAULT_MAX_BONDS  1   /* Default maximum number of devices to support */
+ 
++#define BOND_DEFAULT_TX_QUEUES 16   /* Default number of tx queues per device */
+ /* hashing types */
+ #define BOND_XMIT_POLICY_LAYER2		0 /* layer 2 (MAC only), default */
+ #define BOND_XMIT_POLICY_LAYER34	1 /* layer 3+4 (IP ^ (TCP || UDP)) */
+diff -Naur linux-2.6.32.12/include/linux/netdevice.h linux-2.6.32.12.bondnew/include/linux/netdevice.h
+--- linux-2.6.32.12/include/linux/netdevice.h	2010-04-26 07:43:31.000000000 -0700
++++ linux-2.6.32.12.bondnew/include/linux/netdevice.h	2010-09-15 17:36:11.000000000 -0700
+@@ -1862,10 +1862,12 @@
+ extern int		dev_unicast_add(struct net_device *dev, void *addr);
+ extern int		dev_unicast_sync(struct net_device *to, struct net_device *from);
+ extern void		dev_unicast_unsync(struct net_device *to, struct net_device *from);
++extern void		dev_unicast_flush(struct net_device *dev);
+ extern int 		dev_mc_delete(struct net_device *dev, void *addr, int alen, int all);
+ extern int		dev_mc_add(struct net_device *dev, void *addr, int alen, int newonly);
+ extern int		dev_mc_sync(struct net_device *to, struct net_device *from);
+ extern void		dev_mc_unsync(struct net_device *to, struct net_device *from);
++extern void		dev_addr_discard(struct net_device *dev);
+ extern int 		__dev_addr_delete(struct dev_addr_list **list, int *count, void *addr, int alen, int all);
+ extern int		__dev_addr_add(struct dev_addr_list **list, int *count, void *addr, int alen, int newonly);
+ extern int		__dev_addr_sync(struct dev_addr_list **to, int *to_count, struct dev_addr_list **from, int *from_count);
+@@ -1873,7 +1875,7 @@
+ extern int		dev_set_promiscuity(struct net_device *dev, int inc);
+ extern int		dev_set_allmulti(struct net_device *dev, int inc);
+ extern void		netdev_state_change(struct net_device *dev);
+-extern void		netdev_bonding_change(struct net_device *dev,
++extern int		netdev_bonding_change(struct net_device *dev,
+ 					      unsigned long event);
+ extern void		netdev_features_change(struct net_device *dev);
+ /* Load a device via the kmod */
+diff -Naur linux-2.6.32.12/include/linux/notifier.h linux-2.6.32.12.bondnew/include/linux/notifier.h
+--- linux-2.6.32.12/include/linux/notifier.h	2010-04-26 07:43:31.000000000 -0700
++++ linux-2.6.32.12.bondnew/include/linux/notifier.h	2010-09-15 17:36:11.000000000 -0700
+@@ -199,8 +199,8 @@
+ #define NETDEV_FEAT_CHANGE	0x000B
+ #define NETDEV_BONDING_FAILOVER 0x000C
+ #define NETDEV_PRE_UP		0x000D
+-#define NETDEV_BONDING_OLDTYPE  0x000E
+-#define NETDEV_BONDING_NEWTYPE  0x000F
++#define NETDEV_PRE_TYPE_CHANGE    0x000E
++#define NETDEV_POST_TYPE_CHANGE   0x000F
+ 
+ #define SYS_DOWN	0x0001	/* Notify of system down */
+ #define SYS_RESTART	SYS_DOWN
+diff -Naur linux-2.6.32.12/Makefile linux-2.6.32.12.bondnew/Makefile
+--- linux-2.6.32.12/Makefile	2010-05-26 12:08:56.000000000 -0700
++++ linux-2.6.32.12.bondnew/Makefile	2010-09-15 17:36:11.000000000 -0700
+@@ -1,7 +1,7 @@
+ VERSION = 2
+ PATCHLEVEL = 6
+ SUBLEVEL = 32
+-EXTRAVERSION = .12.04
++EXTRAVERSION = .12.24
+ NAME = Man-Eating Seals of Antiquity
+ 
+ # *DOCUMENTATION*
+diff -Naur linux-2.6.32.12/net/core/dev.c linux-2.6.32.12.bondnew/net/core/dev.c
+--- linux-2.6.32.12/net/core/dev.c	2010-04-26 07:43:31.000000000 -0700
++++ linux-2.6.32.12.bondnew/net/core/dev.c	2010-09-15 17:36:11.000000000 -0700
+@@ -1018,9 +1018,9 @@
+ }
+ EXPORT_SYMBOL(netdev_state_change);
+ 
+-void netdev_bonding_change(struct net_device *dev, unsigned long event)
++int netdev_bonding_change(struct net_device *dev, unsigned long event)
+ {
+-	call_netdevice_notifiers(event, dev);
++	return call_netdevice_notifiers(event, dev);
+ }
+ EXPORT_SYMBOL(netdev_bonding_change);
+ 
+@@ -4046,12 +4046,13 @@
+ }
+ EXPORT_SYMBOL(dev_unicast_unsync);
+ 
+-static void dev_unicast_flush(struct net_device *dev)
++void dev_unicast_flush(struct net_device *dev)
+ {
+ 	netif_addr_lock_bh(dev);
+ 	__hw_addr_flush(&dev->uc);
+ 	netif_addr_unlock_bh(dev);
+ }
++EXPORT_SYMBOL(dev_unicast_flush);
+ 
+ static void dev_unicast_init(struct net_device *dev)
+ {
+@@ -4073,7 +4074,7 @@
+ 	}
+ }
+ 
+-static void dev_addr_discard(struct net_device *dev)
++void dev_addr_discard(struct net_device *dev)
+ {
+ 	netif_addr_lock_bh(dev);
+ 
+@@ -4082,6 +4083,7 @@
+ 
+ 	netif_addr_unlock_bh(dev);
+ }
++EXPORT_SYMBOL(dev_addr_discard);
+ 
+ /**
+  *	dev_get_flags - get flags reported to userspace
+diff -Naur linux-2.6.32.12/net/ipv4/devinet.c linux-2.6.32.12.bondnew/net/ipv4/devinet.c
+--- linux-2.6.32.12/net/ipv4/devinet.c	2010-04-26 07:43:31.000000000 -0700
++++ linux-2.6.32.12.bondnew/net/ipv4/devinet.c	2010-09-15 17:53:39.000000000 -0700
+@@ -1091,10 +1091,10 @@
+ 	case NETDEV_DOWN:
+ 		ip_mc_down(in_dev);
+ 		break;
+-	case NETDEV_BONDING_OLDTYPE:
++	case NETDEV_PRE_TYPE_CHANGE:
+ 		ip_mc_unmap(in_dev);
+ 		break;
+-	case NETDEV_BONDING_NEWTYPE:
++	case NETDEV_POST_TYPE_CHANGE:
+ 		ip_mc_remap(in_dev);
+ 		break;
+ 	case NETDEV_CHANGEMTU:
+diff -Naur linux-2.6.32.12/net/ipv6/addrconf.c linux-2.6.32.12.bondnew/net/ipv6/addrconf.c
+--- linux-2.6.32.12/net/ipv6/addrconf.c	2010-04-26 07:43:31.000000000 -0700
++++ linux-2.6.32.12.bondnew/net/ipv6/addrconf.c	2010-09-15 17:57:50.000000000 -0700
+@@ -137,8 +137,8 @@
+ static void addrconf_join_anycast(struct inet6_ifaddr *ifp);
+ static void addrconf_leave_anycast(struct inet6_ifaddr *ifp);
+ 
+-static void addrconf_bonding_change(struct net_device *dev,
+-				    unsigned long event);
++static void addrconf_type_change(struct net_device *dev,
++      unsigned long event);
+ static int addrconf_ifdown(struct net_device *dev, int how);
+ 
+ static void addrconf_dad_start(struct inet6_ifaddr *ifp, u32 flags);
+@@ -2587,9 +2587,9 @@
+ 				return notifier_from_errno(err);
+ 		}
+ 		break;
+-	case NETDEV_BONDING_OLDTYPE:
+-	case NETDEV_BONDING_NEWTYPE:
+-		addrconf_bonding_change(dev, event);
++	case NETDEV_PRE_TYPE_CHANGE:
++	case NETDEV_POST_TYPE_CHANGE:
++		addrconf_type_change(dev, event);
+ 		break;
+ 	}
+ 
+@@ -2604,16 +2604,16 @@
+ 	.priority = 0
+ };
+ 
+-static void addrconf_bonding_change(struct net_device *dev, unsigned long event)
++static void addrconf_type_change(struct net_device *dev, unsigned long event)
+ {
+ 	struct inet6_dev *idev;
+ 	ASSERT_RTNL();
+ 
+ 	idev = __in6_dev_get(dev);
+ 
+-	if (event == NETDEV_BONDING_NEWTYPE)
++	if (event == NETDEV_POST_TYPE_CHANGE)
+ 		ipv6_mc_remap(idev);
+-	else if (event == NETDEV_BONDING_OLDTYPE)
++	else if (event == NETDEV_PRE_TYPE_CHANGE)
+ 		ipv6_mc_unmap(idev);
+ }
+ 

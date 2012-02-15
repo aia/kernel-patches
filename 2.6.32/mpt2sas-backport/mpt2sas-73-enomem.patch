@@ -1,0 +1,30 @@
+diff --git a/drivers/scsi/mpt2sas/mpt2sas_base.c b/drivers/scsi/mpt2sas/mpt2sas_base.c
+index bb8acf7..d848744 100644
+--- a/drivers/scsi/mpt2sas/mpt2sas_base.c
++++ b/drivers/scsi/mpt2sas/mpt2sas_base.c
+@@ -3634,8 +3634,10 @@ mpt2sas_base_attach(struct MPT2SAS_ADAPTER *ioc)
+ 		ioc->pd_handles_sz++;
+ 	ioc->pd_handles = kzalloc(ioc->pd_handles_sz,
+ 	    GFP_KERNEL);
+-	if (!ioc->pd_handles)
++	if (!ioc->pd_handles) {
++		r = -ENOMEM;
+ 		goto out_free_resources;
++	}
+ 
+ 	ioc->fwfault_debug = mpt2sas_fwfault_debug;
+ 
+@@ -3676,6 +3678,13 @@ mpt2sas_base_attach(struct MPT2SAS_ADAPTER *ioc)
+ 		goto out_free_resources;
+ 	}
+ 
++	if (!ioc->base_cmds.reply || !ioc->transport_cmds.reply ||
++	    !ioc->scsih_cmds.reply || !ioc->tm_cmds.reply ||
++	    !ioc->config_cmds.reply || !ioc->ctl_cmds.reply) {
++		r = -ENOMEM;
++		goto out_free_resources;
++	}
++
+ 	init_completion(&ioc->shost_recovery_done);
+ 
+ 	for (i = 0; i < MPI2_EVENT_NOTIFY_EVENTMASK_WORDS; i++)
