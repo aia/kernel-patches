@@ -21,7 +21,7 @@ if [ "`grep CONFIG_DRM=y .config | cut -f2 -d\=`" = "y" ]; then
 	PROVIDES=kernel-drm
 fi
 
-PROVIDES="$PROVIDES kernel-$KERNELRELEASE"
+PROVIDES="$PROVIDES kernel-$KERNELRELEASE kernel-firmware"
 __KERNELRELEASE=`echo $KERNELRELEASE | sed -e "s/-//g"`
 
 echo "Name: kernel"
